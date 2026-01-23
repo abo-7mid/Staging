@@ -134,20 +134,112 @@ def show_admin_matches():
                     st.subheader("Match Preview")
                     st.markdown(f"**Map:** {p_data['map_name']} | **Score:** {p_data['t1_r']} - {p_data['t2_r']}")
                     
-                    # Convert suggestions to DataFrame for display
-                    sugg_data = []
+                    # Prepare Data for Comparison
+                    all_players_df = get_all_players()
+                    t1_id = p_data['m_info']['team1_id']
+                    t2_id = p_data['m_info']['team2_id']
+                    
+                    # Get IDs of players currently on these teams
+                    t1_roster_ids = all_players_df[all_players_df['default_team_id'] == t1_id]['id'].tolist()
+                    t2_roster_ids = all_players_df[all_players_df['default_team_id'] == t2_id]['id'].tolist()
+                    
+                    # Process players into lists for display
+                    t1_preview_list = []
+                    t2_preview_list = []
+                    
                     for rid, s in p_data['suggestions'].items():
-                        sugg_data.append({
-                            "Tracker Name": s['tracker_name'],
-                            "DB Name": s['name'] if s['name'] else "❌ Not Found",
-                            "Team": "Team 1" if s['team_num'] == 1 else "Team 2",
-                            "Agent": s['agent'],
-                            "ACS": s['acs'],
-                            "K/D/A": f"{s['k']}/{s['d']}/{s['a']}"
-                        })
+                        # Find Player ID
+                        pid = None
+                        if s['name']:
+                            p_row = all_players_df[all_players_df['name'] == s['name']]
+                            if not p_row.empty:
+                                pid = p_row.iloc[0]['id']
+                        
+                        # Determine Status
+                        status = "OK"
+                        status_label = "VERIFIED"
+                        icon = "✅"
+                        color = "rgba(19, 195, 125, 0.1)" # Green
+                        border = "#13C37D"
+                        
+                        if not pid:
+                            status = "NOT_FOUND"
+                            status_label = "NOT FOUND"
+                            icon = "❌"
+                            color = "rgba(255, 75, 75, 0.1)" # Red
+                            border = "#FF4B4B"
+                        else:
+                            # Check roster
+                            assigned_roster_ids = t1_roster_ids if s['team_num'] == 1 else t2_roster_ids
+                            if pid not in assigned_roster_ids:
+                                status = "SUB"
+                                status_label = "SUBSTITUTION"
+                                icon = "⚠️"
+                                color = "rgba(255, 164, 37, 0.1)" # Orange
+                                border = "#FFA425"
+                        
+                        item = {
+                            "data": s,
+                            "status": status,
+                            "label": status_label,
+                            "icon": icon,
+                            "color": color,
+                            "border": border
+                        }
+                        
+                        if s['team_num'] == 1:
+                            t1_preview_list.append(item)
+                        else:
+                            t2_preview_list.append(item)
+                            
+                    # Display Columns
+                    col1, col2 = st.columns(2)
                     
-                    st.dataframe(pd.DataFrame(sugg_data), use_container_width=True)
-                    
+                    def render_player_card(item):
+                        s = item['data']
+                        st.markdown(
+                            f"""
+                            <div style="
+                                background-color: {item['color']}; 
+                                border: 1px solid {item['border']}; 
+                                border-radius: 8px; 
+                                padding: 10px; 
+                                margin-bottom: 8px;
+                                display: flex; 
+                                justify-content: space-between; 
+                                align-items: center;
+                            ">
+                                <div>
+                                    <div style="font-weight: bold; font-size: 1em;">
+                                        {item['icon']} {s['name'] if s['name'] else '<span style="color:#FF4B4B">Unknown Player</span>'}
+                                    </div>
+                                    <div style="font-size: 0.8em; color: #aaa;">
+                                        Tracker: {s['tracker_name']}
+                                    </div>
+                                    <div style="font-size: 0.7em; font-weight: bold; color: {item['border']}; margin-top: 2px;">
+                                        {item['label']}
+                                    </div>
+                                </div>
+                                <div style="text-align: right;">
+                                    <div style="font-weight: bold;">{s['agent']}</div>
+                                    <div style="font-size: 0.9em;">{s['acs']} ACS</div>
+                                    <div style="font-size: 0.8em; color: #ccc;">{s['k']}/{s['d']}/{s['a']}</div>
+                                </div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+
+                    with col1:
+                        st.subheader(f"🛡️ {p_data['m_info']['t1']}")
+                        for item in t1_preview_list:
+                            render_player_card(item)
+                            
+                    with col2:
+                        st.subheader(f"⚔️ {p_data['m_info']['t2']}")
+                        for item in t2_preview_list:
+                            render_player_card(item)
+
                     if st.button("CONFIRM & SAVE MATCH", type="primary", key=f"save_{mid}"):
                         save_match_result(mid, p_data['map_name'], p_data['t1_r'], p_data['t2_r'], p_data['suggestions'], p_data['m_info'])
                         del st.session_state[preview_key]
@@ -282,6 +374,12 @@ def save_match_result(match_id, map_name, t1_rounds, t2_rounds, player_stats, ma
         t2_lookup = {str(r).lower(): i for r, i in zip(t2_roster['riot_id'], t2_roster['id']) if r}
         t2_lookup.update({str(n).lower(): i for n, i in zip(t2_roster['name'], t2_roster['id'])})
         
+        # Helper to check roster for sub detection
+        def get_default_team(pid):
+            cur = conn.execute("SELECT default_team_id FROM players WHERE id=?", (pid,))
+            res = cur.fetchone()
+            return res[0] if res else None
+
         for riot_id, stats in player_stats.items():
             # Determine Team ID
             team_id = match_info['team1_id'] if stats['team_num'] == 1 else match_info['team2_id']
@@ -289,21 +387,26 @@ def save_match_result(match_id, map_name, t1_rounds, t2_rounds, player_stats, ma
             # Find Player ID
             pid = None
             if stats['name']:
-                # If name was found in utils.parse_tracker_json (which returns matched name)
-                # We need to find the ID. 
-                # Simplified: try to find ID by name in players table
-                # A more robust way would be to return ID from parse_tracker_json
                 p_row = conn.execute("SELECT id FROM players WHERE name=?", (stats['name'],)).fetchone()
                 if p_row:
                     pid = p_row[0]
             
+            # Check for Sub
+            is_sub = 0
+            if pid:
+                default_tid = get_default_team(pid)
+                # If player's default team is different from the team they played for -> Sub
+                # Note: default_tid can be None (Free Agent) -> counted as Sub if playing for a team
+                if default_tid != team_id:
+                    is_sub = 1
+            
             # Insert Stats
             conn.execute(
                 """
-                INSERT INTO match_stats_map (match_id, map_index, team_id, player_id, agent, acs, kills, deaths, assists)
-                VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO match_stats_map (match_id, map_index, team_id, player_id, agent, acs, kills, deaths, assists, is_sub)
+                VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (match_id, team_id, pid, stats['agent'], stats['acs'], stats['k'], stats['d'], stats['a'])
+                (match_id, team_id, pid, stats['agent'], stats['acs'], stats['k'], stats['d'], stats['a'], is_sub)
             )
             
         conn.commit()
