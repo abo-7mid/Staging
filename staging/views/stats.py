@@ -16,7 +16,87 @@ def show_stats():
         else:
             # Filters
             min_games = st.slider("Minimum Games Played", 1, int(df['games'].max()) if not df.empty else 5, 1)
-            filtered_df = df[df['games'] >= min_games]
+            filtered_df = df[df['games'] >= min_games].sort_values('avg_acs', ascending=False)
+            
+            # Podium Logic
+            if len(filtered_df) >= 3:
+                top3 = filtered_df.head(3).to_dict('records')
+                
+                # Custom CSS for Podium
+                st.markdown("""
+                <style>
+                .podium-container {
+                    display: flex;
+                    justify-content: center;
+                    align-items: flex-end;
+                    gap: 1rem;
+                    margin-bottom: 2rem;
+                    height: 250px;
+                }
+                .podium-item {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    width: 120px;
+                }
+                .podium-rank {
+                    width: 100%;
+                    border-radius: 8px 8px 0 0;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    color: #0f1923;
+                    font-weight: bold;
+                    box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+                }
+                .rank-1 { height: 160px; background: linear-gradient(135deg, #FFD700, #FDB931); border: 2px solid #FFF8D6; }
+                .rank-2 { height: 120px; background: linear-gradient(135deg, #E0E0E0, #BDBDBD); border: 2px solid #F5F5F5; }
+                .rank-3 { height: 90px; background: linear-gradient(135deg, #CD7F32, #A0522D); border: 2px solid #E6C2AA; }
+                
+                .player-name { font-weight: bold; margin-bottom: 5px; text-align: center; color: #ece8e1; }
+                .player-stats { font-size: 0.8rem; color: #8b97a5; }
+                .medal { font-size: 2rem; margin-bottom: 10px; }
+                </style>
+                """, unsafe_allow_html=True)
+                
+                c1, c2, c3 = st.columns([1,1,1]) # Use columns for layout control, but actually better to use HTML directly if possible or columns
+                
+                # Construct HTML for podium
+                # Order: 2nd, 1st, 3rd for visual podium effect
+                p1 = top3[0]
+                p2 = top3[1]
+                p3 = top3[2]
+                
+                html = f"""
+                <div class="podium-container">
+                    <div class="podium-item">
+                        <div class="player-name">{p2['name']}</div>
+                        <div class="player-stats">{p2['avg_acs']:.1f} ACS</div>
+                        <div class="podium-rank rank-2">
+                            <div class="medal">🥈</div>
+                            <div>#2</div>
+                        </div>
+                    </div>
+                    <div class="podium-item">
+                        <div class="player-name">👑 {p1['name']}</div>
+                        <div class="player-stats">{p1['avg_acs']:.1f} ACS</div>
+                        <div class="podium-rank rank-1">
+                            <div class="medal">🥇</div>
+                            <div>#1</div>
+                        </div>
+                    </div>
+                    <div class="podium-item">
+                        <div class="player-name">{p3['name']}</div>
+                        <div class="player-stats">{p3['avg_acs']:.1f} ACS</div>
+                        <div class="podium-rank rank-3">
+                            <div class="medal">🥉</div>
+                            <div>#3</div>
+                        </div>
+                    </div>
+                </div>
+                """
+                st.markdown(html, unsafe_allow_html=True)
             
             st.dataframe(
                 filtered_df,
