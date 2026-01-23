@@ -1,0 +1,9 @@
+streamlit
+pandas
+scikit-learn
+Pillow
+plotly
+requests
+numpy
+joblib
+
