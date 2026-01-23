@@ -119,6 +119,59 @@ def fetch_match_from_github(match_id):
         except Exception as e:
             return None, f"GitHub fetch error: {str(e)}"
 
+def backup_db_to_github():
+    """
+    Backs up the local SQLite database to GitHub.
+    """
+    owner = get_secret("GH_OWNER")
+    repo = get_secret("GH_REPO")
+    token = get_secret("GH_TOKEN")
+    branch = get_secret("GH_BRANCH", "main")
+    
+    if not owner or not repo or not token:
+        return False, "GitHub configuration missing (GH_OWNER/GH_REPO/GH_TOKEN)"
+        
+    # Get DB Path
+    from .db import DB_PATH
+    
+    if not os.path.exists(DB_PATH):
+        return False, "Database file not found."
+        
+    try:
+        with open(DB_PATH, "rb") as f:
+            content = f.read()
+            
+        # Get current SHA of the file if it exists
+        url = f"https://api.github.com/repos/{owner}/{repo}/contents/data/valorant_s23.db"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+        
+        sha = None
+        r_get = requests.get(url, headers=headers)
+        if r_get.status_code == 200:
+            sha = r_get.json().get("sha")
+            
+        # Create/Update file
+        data = {
+            "message": "Automated DB Backup from Admin Panel",
+            "content": base64.b64encode(content).decode("utf-8"),
+            "branch": branch
+        }
+        if sha:
+            data["sha"] = sha
+            
+        r_put = requests.put(url, headers=headers, json=data)
+        
+        if r_put.status_code in [200, 201]:
+            return True, "Backup successful!"
+        else:
+            return False, f"GitHub API Error: {r_put.status_code} - {r_put.text}"
+            
+    except Exception as e:
+        return False, f"Backup error: {str(e)}"
+
 def parse_tracker_json(jsdata, team1_id, team2_id, all_players_df):
     """
     Parses Tracker.gg JSON data and matches it to team1_id and team2_id.
@@ -298,8 +351,12 @@ def apply_plotly_theme(fig):
         margin=dict(l=20, r=20, t=40, b=20),
         legend=dict(
             bgcolor='rgba(0,0,0,0)',
-            bordercolor='rgba(255,255,255,0.1)',
             font=dict(color='#ECE8E1')
+        ),
+        hoverlabel=dict(
+            bgcolor='#1A1F2B',
+            font_size=12,
+            font_family='Inter'
         )
     )
     return fig
