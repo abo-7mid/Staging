@@ -105,7 +105,13 @@ def show_admin_matches():
                             try:
                                 # Get match details for team IDs
                                 conn = get_conn()
-                                m_info = pd.read_sql("SELECT * FROM matches WHERE id=?", conn, params=(mid,)).iloc[0]
+                                m_info = pd.read_sql("""
+                                    SELECT m.*, t1.name as t1, t2.name as t2 
+                                    FROM matches m 
+                                    LEFT JOIN teams t1 ON m.team1_id = t1.id 
+                                    LEFT JOIN teams t2 ON m.team2_id = t2.id 
+                                    WHERE m.id=?
+                                """, conn, params=(mid,)).iloc[0]
                                 conn.close()
                                 
                                 # Get all players for mapping
