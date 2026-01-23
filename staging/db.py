@@ -256,6 +256,8 @@ def ensure_upgrade_schema(conn=None):
     ensure_column("matches", "is_forfeit", "is_forfeit BOOLEAN DEFAULT 0", conn=conn)
     ensure_column("matches", "bracket_label", "bracket_label TEXT", conn=conn)
     ensure_column("match_maps", "is_forfeit", "is_forfeit INTEGER DEFAULT 0", conn=conn)
+    ensure_column("match_stats_map", "is_sub", "is_sub INTEGER DEFAULT 0", conn=conn)
+    ensure_column("match_stats_map", "subbed_for_id", "subbed_for_id INTEGER", conn=conn)
     
     try:
         c.execute("INSERT OR IGNORE INTO seasons (id, name, is_active) VALUES (22, 'Season 22', 0)")
