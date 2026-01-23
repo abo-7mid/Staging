@@ -329,7 +329,7 @@ def show_admin_players():
         filter_team = st.selectbox("Filter Team", ["All"] + list(team_opts.keys()))
         
     with col_f3:
-        ranks = ["Iron", "Bronze", "Silver", "Gold", "Platinum", "Diamond", "Ascendant", "Immortal 1", "Immortal 2", "Immortal 3", "Radiant"]
+        ranks = ["Iron/Bronze", "Silver", "Gold", "Platinum", "Diamond", "Ascendant", "Immortal 1/2", "Immortal 3/Radiant"]
         filter_rank = st.selectbox("Filter Rank", ["All"] + ranks)
 
     # Filter Logic
