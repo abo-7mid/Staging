@@ -62,9 +62,10 @@ def get_player_profile(player_id):
         # Stats with match metadata in one go
         stats = pd.read_sql(
             """
-            SELECT msm.match_id, msm.map_index, msm.agent, msm.acs, msm.kills, msm.deaths, msm.assists, msm.is_sub, m.week
+            SELECT msm.match_id, msm.map_index, msm.agent, msm.acs, msm.kills, msm.deaths, msm.assists, msm.is_sub, m.week, mm.map_name
             FROM match_stats_map msm
             JOIN matches m ON msm.match_id = m.id
+            LEFT JOIN match_maps mm ON msm.match_id = mm.match_id AND msm.map_index = mm.map_index
             WHERE msm.player_id=? AND m.status = 'completed'
             """,
             conn,
