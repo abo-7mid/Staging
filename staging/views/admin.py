@@ -240,43 +240,48 @@ def show_admin_matches():
                     
                     def render_player_card(item):
                         s = item['data']
-                        sub_text = ""
+                        
+                        # Prepare sub text HTML
+                        sub_html = ""
                         if item.get('subbed_for'):
-                            sub_text = f"<div style='font-size: 0.8em; color: {item['border']};'>Subbing for: {item['subbed_for']}</div>"
-                            
-                        st.markdown(
-                            f"""
-                            <div style="
-                                background-color: {item['color']}; 
-                                border: 1px solid {item['border']}; 
-                                border-radius: 8px; 
-                                padding: 10px; 
-                                margin-bottom: 8px;
-                                display: flex; 
-                                justify-content: space-between; 
-                                align-items: center;
-                            ">
-                                <div>
-                                    <div style="font-weight: bold; font-size: 1em;">
-                                        {item['icon']} {s['name'] if s['name'] else '<span style="color:#FF4B4B">Unknown Player</span>'}
-                                    </div>
-                                    <div style="font-size: 0.8em; color: #aaa;">
-                                        Tracker: {s['tracker_name']}
-                                    </div>
-                                    <div style="font-size: 0.7em; font-weight: bold; color: {item['border']}; margin-top: 2px;">
-                                        {item['label']}
-                                    </div>
-                                    {sub_text}
+                            sub_html = f'<div style="font-size: 0.8em; color: {item["border"]};">Subbing for: {item["subbed_for"]}</div>'
+                        
+                        # Prepare Name HTML
+                        name_html = s['name'] if s['name'] else '<span style="color:#FF4B4B">Unknown Player</span>'
+                        
+                        # Construct HTML
+                        card_html = f"""
+                        <div style="
+                            background-color: {item['color']}; 
+                            border: 1px solid {item['border']}; 
+                            border-radius: 8px; 
+                            padding: 10px; 
+                            margin-bottom: 8px;
+                            display: flex; 
+                            justify-content: space-between; 
+                            align-items: center;
+                        ">
+                            <div>
+                                <div style="font-weight: bold; font-size: 1em;">
+                                    {item['icon']} {name_html}
                                 </div>
-                                <div style="text-align: right;">
-                                    <div style="font-weight: bold;">{s['agent']}</div>
-                                    <div style="font-size: 0.9em;">{s['acs']} ACS</div>
-                                    <div style="font-size: 0.8em; color: #ccc;">{s['k']}/{s['d']}/{s['a']}</div>
+                                <div style="font-size: 0.8em; color: #aaa;">
+                                    Tracker: {s['tracker_name']}
                                 </div>
+                                <div style="font-size: 0.7em; font-weight: bold; color: {item['border']}; margin-top: 2px;">
+                                    {item['label']}
+                                </div>
+                                {sub_html}
                             </div>
-                            """,
-                            unsafe_allow_html=True
-                        )
+                            <div style="text-align: right;">
+                                <div style="font-weight: bold;">{s['agent']}</div>
+                                <div style="font-size: 0.9em;">{s['acs']} ACS</div>
+                                <div style="font-size: 0.8em; color: #ccc;">{s['k']}/{s['d']}/{s['a']}</div>
+                            </div>
+                        </div>
+                        """
+                        
+                        st.markdown(card_html, unsafe_allow_html=True)
 
                     with col1:
                         st.subheader(f"🛡️ {p_data['m_info']['t1']}")

@@ -137,7 +137,56 @@ def show_stats():
                     c4.metric("Games", profile['games'])
                     
                     if not profile['trend'].empty:
-                        st.subheader("Performance Trend")
-                        fig = px.line(profile['trend'], x='label', y='avg_acs', title="ACS over Matches")
-                        fig = apply_plotly_theme(fig)
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.subheader("Performance Trends")
+                        t1, t2 = st.tabs(["ACS Trend", "K/D Trend"])
+                        
+                        with t1:
+                            fig_acs = px.line(profile['trend'], x='label', y='avg_acs', title="ACS over Matches", markers=True)
+                            fig_acs.update_traces(line_color='#FF4655', line_width=3)
+                            st.plotly_chart(apply_plotly_theme(fig_acs), use_container_width=True)
+                            
+                        with t2:
+                            fig_kd = px.line(profile['trend'], x='label', y='kda', title="K/D over Matches", markers=True)
+                            fig_kd.update_traces(line_color='#0F1923', line_width=3)
+                            st.plotly_chart(apply_plotly_theme(fig_kd), use_container_width=True)
+
+                    # Detailed Analysis
+                    c_a1, c_a2 = st.columns(2)
+                    
+                    with c_a1:
+                        st.markdown("##### Map Pool")
+                        if not profile['maps'].empty and 'map_name' in profile['maps'].columns:
+                            m_counts = profile['maps']['map_name'].value_counts().reset_index()
+                            m_counts.columns = ['Map', 'Games']
+                            fig_map = px.pie(m_counts, values='Games', names='Map', hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
+                            st.plotly_chart(apply_plotly_theme(fig_map), use_container_width=True)
+                        else:
+                            st.caption("No map data available.")
+
+                    with c_a2:
+                        st.markdown("##### Performance vs Benchmark")
+                        # Compare ACS with League and Rank Avg
+                        bench_data = [
+                            {'Type': 'Player', 'ACS': profile['avg_acs'], 'Color': '#FF4655'},
+                            {'Type': 'Rank Avg', 'ACS': profile['sr_avg_acs'], 'Color': '#BDC3C7'},
+                            {'Type': 'League Avg', 'ACS': profile['lg_avg_acs'], 'Color': '#7F8C8D'}
+                        ]
+                        df_bench = pd.DataFrame(bench_data)
+                        fig_bench = px.bar(df_bench, x='Type', y='ACS', color='Type', 
+                                         color_discrete_map={'Player': '#FF4655', 'Rank Avg': '#BDC3C7', 'League Avg': '#7F8C8D'},
+                                         title="Average ACS Comparison")
+                        st.plotly_chart(apply_plotly_theme(fig_bench), use_container_width=True)
+
+                    # Role Impact (Starter vs Sub)
+                    imp = profile.get('sub_impact')
+                    if imp and (imp['sub_acs'] > 0 or imp['starter_acs'] > 0):
+                        st.markdown("##### Role Impact (Starter vs Sub)")
+                        i_data = [
+                            {'Role': 'Starter', 'ACS': imp['starter_acs'], 'Color': '#0F1923'},
+                            {'Role': 'Sub', 'ACS': imp['sub_acs'], 'Color': '#FF4655'}
+                        ]
+                        df_role = pd.DataFrame(i_data)
+                        fig_role = px.bar(df_role, x='Role', y='ACS', color='Role',
+                                        color_discrete_map={'Starter': '#0F1923', 'Sub': '#FF4655'},
+                                        title="ACS by Role")
+                        st.plotly_chart(apply_plotly_theme(fig_role), use_container_width=True)

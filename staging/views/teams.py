@@ -62,7 +62,8 @@ def show_teams():
 </div>
 </div>""", unsafe_allow_html=True)
             
-            with st.expander("Manage Roster & Details"):
+            expander_label = "Manage Team & Roster" if st.session_state.get('is_admin') else "View Roster"
+            with st.expander(expander_label):
                 roster = rosters_by_team.get(int(row.id), pd.DataFrame())
                 
                 if roster.empty:
