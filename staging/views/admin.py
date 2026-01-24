@@ -146,10 +146,35 @@ def show_admin_matches():
                     t2_id = p_data['m_info']['team2_id']
                     
                     # Get IDs of players currently on these teams
-                    t1_roster_ids = all_players_df[all_players_df['default_team_id'] == t1_id]['id'].tolist()
-                    t2_roster_ids = all_players_df[all_players_df['default_team_id'] == t2_id]['id'].tolist()
+                    t1_roster_ids = set(all_players_df[all_players_df['default_team_id'] == t1_id]['id'].tolist())
+                    t2_roster_ids = set(all_players_df[all_players_df['default_team_id'] == t2_id]['id'].tolist())
                     
-                    # Process players into lists for display
+                    # 1. Identify Present Players (First Pass)
+                    t1_present_ids = set()
+                    t2_present_ids = set()
+                    
+                    for rid, s in p_data['suggestions'].items():
+                        if s['name']:
+                            p_row = all_players_df[all_players_df['name'] == s['name']]
+                            if not p_row.empty:
+                                pid = p_row.iloc[0]['id']
+                                if s['team_num'] == 1:
+                                    t1_present_ids.add(pid)
+                                else:
+                                    t2_present_ids.add(pid)
+
+                    # 2. Identify Missing Players (Candidates for Subbing)
+                    t1_missing_ids = list(t1_roster_ids - t1_present_ids)
+                    t2_missing_ids = list(t2_roster_ids - t2_present_ids)
+                    
+                    # Helper to get name
+                    def get_name(pid):
+                        r = all_players_df[all_players_df['id'] == pid]
+                        if not r.empty:
+                            return r.iloc[0]['name']
+                        return "Unknown"
+
+                    # 3. Process players for display (Second Pass)
                     t1_preview_list = []
                     t2_preview_list = []
                     
@@ -167,6 +192,7 @@ def show_admin_matches():
                         icon = "✅"
                         color = "rgba(19, 195, 125, 0.1)" # Green
                         border = "#13C37D"
+                        subbed_for_name = None
                         
                         if not pid:
                             status = "NOT_FOUND"
@@ -183,6 +209,16 @@ def show_admin_matches():
                                 icon = "⚠️"
                                 color = "rgba(255, 164, 37, 0.1)" # Orange
                                 border = "#FFA425"
+                                
+                                # Determine who they are subbing for
+                                if s['team_num'] == 1:
+                                    if t1_missing_ids:
+                                        mid = t1_missing_ids.pop(0)
+                                        subbed_for_name = get_name(mid)
+                                else:
+                                    if t2_missing_ids:
+                                        mid = t2_missing_ids.pop(0)
+                                        subbed_for_name = get_name(mid)
                         
                         item = {
                             "data": s,
@@ -190,7 +226,8 @@ def show_admin_matches():
                             "label": status_label,
                             "icon": icon,
                             "color": color,
-                            "border": border
+                            "border": border,
+                            "subbed_for": subbed_for_name
                         }
                         
                         if s['team_num'] == 1:
@@ -203,6 +240,10 @@ def show_admin_matches():
                     
                     def render_player_card(item):
                         s = item['data']
+                        sub_text = ""
+                        if item.get('subbed_for'):
+                            sub_text = f"<div style='font-size: 0.8em; color: {item['border']};'>Subbing for: {item['subbed_for']}</div>"
+                            
                         st.markdown(
                             f"""
                             <div style="
@@ -225,6 +266,7 @@ def show_admin_matches():
                                     <div style="font-size: 0.7em; font-weight: bold; color: {item['border']}; margin-top: 2px;">
                                         {item['label']}
                                     </div>
+                                    {sub_text}
                                 </div>
                                 <div style="text-align: right;">
                                     <div style="font-weight: bold;">{s['agent']}</div>
@@ -369,50 +411,81 @@ def save_match_result(match_id, map_name, t1_rounds, t2_rounds, player_stats, ma
         # Update Stats
         conn.execute("DELETE FROM match_stats_map WHERE match_id=?", (match_id,))
         
-        # Get team rosters to map stats to teams
-        t1_roster = pd.read_sql("SELECT id, name, riot_id FROM players WHERE default_team_id=?", conn, params=(match_info['team1_id'],))
-        t2_roster = pd.read_sql("SELECT id, name, riot_id FROM players WHERE default_team_id=?", conn, params=(match_info['team2_id'],))
+        # Get team rosters to determine missing players (for sub mapping)
+        # We need to find who is supposed to be playing but isn't
+        t1_roster_df = pd.read_sql("SELECT id FROM players WHERE default_team_id=?", conn, params=(match_info['team1_id'],))
+        t2_roster_df = pd.read_sql("SELECT id FROM players WHERE default_team_id=?", conn, params=(match_info['team2_id'],))
         
-        # Create lookups
-        t1_lookup = {str(r).lower(): i for r, i in zip(t1_roster['riot_id'], t1_roster['id']) if r}
-        t1_lookup.update({str(n).lower(): i for n, i in zip(t1_roster['name'], t1_roster['id'])})
+        t1_roster_ids = set(t1_roster_df['id'].tolist())
+        t2_roster_ids = set(t2_roster_df['id'].tolist())
         
-        t2_lookup = {str(r).lower(): i for r, i in zip(t2_roster['riot_id'], t2_roster['id']) if r}
-        t2_lookup.update({str(n).lower(): i for n, i in zip(t2_roster['name'], t2_roster['id'])})
+        # Pre-resolve players to find who is playing
+        resolved_players = []
+        t1_present_ids = set()
+        t2_present_ids = set()
         
-        # Helper to check roster for sub detection
-        def get_default_team(pid):
-            cur = conn.execute("SELECT default_team_id FROM players WHERE id=?", (pid,))
-            res = cur.fetchone()
-            return res[0] if res else None
-
         for riot_id, stats in player_stats.items():
-            # Determine Team ID
-            team_id = match_info['team1_id'] if stats['team_num'] == 1 else match_info['team2_id']
-            
-            # Find Player ID
             pid = None
+            default_tid = None
+            
             if stats['name']:
-                p_row = conn.execute("SELECT id FROM players WHERE name=?", (stats['name'],)).fetchone()
+                p_row = conn.execute("SELECT id, default_team_id FROM players WHERE name=?", (stats['name'],)).fetchone()
                 if p_row:
                     pid = p_row[0]
+                    default_tid = p_row[1]
             
-            # Check for Sub
-            is_sub = 0
             if pid:
-                default_tid = get_default_team(pid)
+                if stats['team_num'] == 1:
+                    t1_present_ids.add(pid)
+                else:
+                    t2_present_ids.add(pid)
+            
+            resolved_players.append({
+                'riot_id': riot_id,
+                'stats': stats,
+                'pid': pid,
+                'default_tid': default_tid
+            })
+            
+        # Identify missing players (candidates for being subbed out)
+        t1_missing = list(t1_roster_ids - t1_present_ids)
+        t2_missing = list(t2_roster_ids - t2_present_ids)
+        
+        for p in resolved_players:
+            stats = p['stats']
+            pid = p['pid']
+            default_tid = p['default_tid']
+            
+            # Determine Team ID (Match Team)
+            # Ensure int for database consistency
+            team_id = int(match_info['team1_id']) if stats['team_num'] == 1 else int(match_info['team2_id'])
+            
+            is_sub = 0
+            subbed_for_id = None
+            
+            if pid:
+                # Check for Sub
                 # If player's default team is different from the team they played for -> Sub
                 # Note: default_tid can be None (Free Agent) -> counted as Sub if playing for a team
                 if default_tid != team_id:
                     is_sub = 1
+                    
+                    # Assign subbed_for_id
+                    # Heuristic: Assign to the first missing player from the roster
+                    if stats['team_num'] == 1:
+                        if t1_missing:
+                            subbed_for_id = t1_missing.pop(0)
+                    else:
+                        if t2_missing:
+                            subbed_for_id = t2_missing.pop(0)
             
             # Insert Stats
             conn.execute(
                 """
-                INSERT INTO match_stats_map (match_id, map_index, team_id, player_id, agent, acs, kills, deaths, assists, is_sub)
-                VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO match_stats_map (match_id, map_index, team_id, player_id, agent, acs, kills, deaths, assists, is_sub, subbed_for_id)
+                VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (match_id, team_id, pid, stats['agent'], stats['acs'], stats['k'], stats['d'], stats['a'], is_sub)
+                (match_id, team_id, pid, stats['agent'], stats['acs'], stats['k'], stats['d'], stats['a'], is_sub, subbed_for_id)
             )
             
         conn.commit()
