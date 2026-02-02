@@ -262,28 +262,13 @@ def show_admin_matches():
                         # Prepare Name HTML
                         name_html = s['name'] if s['name'] else '<span style="color:#FF4B4B">Unknown Player</span>'
                         
-                        # Construct HTML
+                        # Construct HTML (Compact to avoid markdown indentation issues)
                         card_html = f"""
-                        <div style="
-                            background-color: {item['color']}; 
-                            border: 1px solid {item['border']}; 
-                            border-radius: 8px; 
-                            padding: 10px; 
-                            margin-bottom: 8px;
-                            display: flex; 
-                            justify-content: space-between; 
-                            align-items: center;
-                        ">
+                        <div style="background-color: {item['color']}; border: 1px solid {item['border']}; border-radius: 8px; padding: 10px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
                             <div>
-                                <div style="font-weight: bold; font-size: 1em;">
-                                    {item['icon']} {name_html}
-                                </div>
-                                <div style="font-size: 0.8em; color: #aaa;">
-                                    Tracker: {s['tracker_name']}
-                                </div>
-                                <div style="font-size: 0.7em; font-weight: bold; color: {item['border']}; margin-top: 2px;">
-                                    {item['label']}
-                                </div>
+                                <div style="font-weight: bold; font-size: 1em;">{item['icon']} {name_html}</div>
+                                <div style="font-size: 0.8em; color: #aaa;">Tracker: {s['tracker_name']}</div>
+                                <div style="font-size: 0.7em; font-weight: bold; color: {item['border']}; margin-top: 2px;">{item['label']}</div>
                                 {sub_html}
                             </div>
                             <div style="text-align: right;">
