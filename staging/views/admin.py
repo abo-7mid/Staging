@@ -264,35 +264,35 @@ def show_admin_matches():
                         
                         # Construct HTML
                         card_html = f"""
-                        <div style="
-                            background-color: {item['color']}; 
-                            border: 1px solid {item['border']}; 
-                            border-radius: 8px; 
-                            padding: 10px; 
-                            margin-bottom: 8px;
-                            display: flex; 
-                            justify-content: space-between; 
-                            align-items: center;
-                        ">
-                            <div>
-                                <div style="font-weight: bold; font-size: 1em;">
-                                    {item['icon']} {name_html}
-                                </div>
-                                <div style="font-size: 0.8em; color: #aaa;">
-                                    Tracker: {s['tracker_name']}
-                                </div>
-                                <div style="font-size: 0.7em; font-weight: bold; color: {item['border']}; margin-top: 2px;">
-                                    {item['label']}
-                                </div>
-                                {sub_html}
-                            </div>
-                            <div style="text-align: right;">
-                                <div style="font-weight: bold;">{s['agent']}</div>
-                                <div style="font-size: 0.9em;">{s['acs']} ACS</div>
-                                <div style="font-size: 0.8em; color: #ccc;">{s['k']}/{s['d']}/{s['a']}</div>
-                            </div>
-                        </div>
-                        """
+<div style="
+    background-color: {item['color']}; 
+    border: 1px solid {item['border']}; 
+    border-radius: 8px; 
+    padding: 10px; 
+    margin-bottom: 8px;
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center;
+">
+    <div>
+        <div style="font-weight: bold; font-size: 1em;">
+            {item['icon']} {name_html}
+        </div>
+        <div style="font-size: 0.8em; color: #aaa;">
+            Tracker: {s['tracker_name']}
+        </div>
+        <div style="font-size: 0.7em; font-weight: bold; color: {item['border']}; margin-top: 2px;">
+            {item['label']}
+        </div>
+        {sub_html}
+    </div>
+    <div style="text-align: right;">
+        <div style="font-weight: bold;">{s['agent']}</div>
+        <div style="font-size: 0.9em;">{s['acs']} ACS</div>
+        <div style="font-size: 0.8em; color: #ccc;">{s['k']}/{s['d']}/{s['a']}</div>
+    </div>
+</div>
+"""
                         st.markdown(card_html, unsafe_allow_html=True)
 
                     with col1:
