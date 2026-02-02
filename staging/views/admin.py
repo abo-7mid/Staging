@@ -137,8 +137,21 @@ def show_admin_matches():
                 if preview_key in st.session_state:
                     p_data = st.session_state[preview_key]
                     st.markdown("---")
-                    st.subheader("Match Preview")
-                    st.markdown(f"**Map:** {p_data['map_name']} | **Score:** {p_data['t1_r']} - {p_data['t2_r']}")
+                    st.subheader("Match Preview & Edit")
+                    
+                    # --- EDITABLE HEADER ---
+                    c1, c2, c3 = st.columns([2, 1, 1])
+                    with c1:
+                        new_map = st.text_input("Map Name", value=p_data['map_name'], key=f"map_{mid}")
+                    with c2:
+                        new_t1_r = st.number_input(f"{p_data['m_info']['t1']} Score", value=p_data['t1_r'], key=f"s1_{mid}")
+                    with c3:
+                        new_t2_r = st.number_input(f"{p_data['m_info']['t2']} Score", value=p_data['t2_r'], key=f"s2_{mid}")
+                    
+                    # Update state immediately
+                    p_data['map_name'] = new_map
+                    p_data['t1_r'] = int(new_t1_r)
+                    p_data['t2_r'] = int(new_t2_r)
                     
                     # Prepare Data for Comparison
                     all_players_df = get_all_players()
@@ -213,12 +226,12 @@ def show_admin_matches():
                                 # Determine who they are subbing for
                                 if s['team_num'] == 1:
                                     if t1_missing_ids:
-                                        mid = t1_missing_ids.pop(0)
-                                        subbed_for_name = get_name(mid)
+                                        missing_pid = t1_missing_ids.pop(0)
+                                        subbed_for_name = get_name(missing_pid)
                                 else:
                                     if t2_missing_ids:
-                                        mid = t2_missing_ids.pop(0)
-                                        subbed_for_name = get_name(mid)
+                                        missing_pid = t2_missing_ids.pop(0)
+                                        subbed_for_name = get_name(missing_pid)
                         
                         item = {
                             "data": s,
@@ -280,7 +293,6 @@ def show_admin_matches():
                             </div>
                         </div>
                         """
-                        
                         st.markdown(card_html, unsafe_allow_html=True)
 
                     with col1:
@@ -292,6 +304,43 @@ def show_admin_matches():
                         st.subheader(f"⚔️ {p_data['m_info']['t2']}")
                         for item in t2_preview_list:
                             render_player_card(item)
+
+                    # --- PLAYER EDIT SECTION ---
+                    st.markdown("#### Manual Player Edits")
+                    with st.expander("Edit Player Stats"):
+                        # Flatten list for selection
+                        # Create unique labels
+                        player_options = {}
+                        for pid, d in p_data['suggestions'].items():
+                            lbl = f"{d['name']} ({d['agent']}) - {d['k']}/{d['d']}/{d['a']}"
+                            player_options[lbl] = pid
+                            
+                        sel_player_label = st.selectbox("Select Player to Edit", list(player_options.keys()))
+                        
+                        if sel_player_label:
+                            sel_pid = player_options[sel_player_label]
+                            sel_data = p_data['suggestions'][sel_pid]
+                            
+                            ec1, ec2, ec3 = st.columns(3)
+                            with ec1:
+                                ename = st.text_input("Name", value=sel_data['name'] or "")
+                                eagent = st.text_input("Agent", value=sel_data['agent'])
+                            with ec2:
+                                eacs = st.number_input("ACS", value=int(sel_data['acs']))
+                                ek = st.number_input("Kills", value=int(sel_data['k']))
+                            with ec3:
+                                ed = st.number_input("Deaths", value=int(sel_data['d']))
+                                ea = st.number_input("Assists", value=int(sel_data['a']))
+                                
+                            if st.button("Update Player Data"):
+                                p_data['suggestions'][sel_pid]['name'] = ename
+                                p_data['suggestions'][sel_pid]['agent'] = eagent
+                                p_data['suggestions'][sel_pid]['acs'] = eacs
+                                p_data['suggestions'][sel_pid]['k'] = ek
+                                p_data['suggestions'][sel_pid]['d'] = ed
+                                p_data['suggestions'][sel_pid]['a'] = ea
+                                st.success("Player updated!")
+                                st.rerun()
 
                     if st.button("CONFIRM & SAVE MATCH", type="primary", key=f"save_{mid}"):
                         save_match_result(mid, p_data['map_name'], p_data['t1_r'], p_data['t2_r'], p_data['suggestions'], p_data['m_info'])
@@ -314,14 +363,56 @@ def show_admin_matches():
         
         if st.button("Parse & Schedule Matches", type="primary"):
             if schedule_text:
-                parse_and_schedule(schedule_text, week_num)
+                matches = parse_schedule_text(schedule_text, week_num)
+                if matches:
+                    st.session_state['schedule_preview'] = matches
+                    st.rerun()
+                else:
+                    st.warning("No valid matches found.")
             else:
                 st.warning("Please paste some text.")
         
+        if 'schedule_preview' in st.session_state:
+            matches_to_add = st.session_state['schedule_preview']
+            st.write(f"Found {len(matches_to_add)} matches to schedule:")
+            st.dataframe(pd.DataFrame(matches_to_add))
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("Confirm Schedule Import", type="primary"):
+                    conn = get_conn()
+                    try:
+                        count = 0
+                        for m in matches_to_add:
+                            # Check if exists
+                            existing = conn.execute(
+                                "SELECT id FROM matches WHERE week=? AND team1_id=? AND team2_id=?", 
+                                (m['week'], m['t1_id'], m['t2_id'])
+                            ).fetchone()
+                            
+                            if not existing:
+                                conn.execute(
+                                    "INSERT INTO matches (week, group_name, team1_id, team2_id, status) VALUES (?, ?, ?, ?, 'scheduled')",
+                                    (m['week'], m['group'], m['t1_id'], m['t2_id'])
+                                )
+                                count += 1
+                        conn.commit()
+                        st.success(f"Successfully scheduled {count} new matches!")
+                        del st.session_state['schedule_preview']
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Database error: {e}")
+                    finally:
+                        conn.close()
+            with c2:
+                if st.button("Cancel Import"):
+                    del st.session_state['schedule_preview']
+                    st.rerun()
+            
     elif action == "Manage Playoffs":
         st.info("Playoff management feature coming soon.")
 
-def parse_and_schedule(text, week):
+def parse_schedule_text(text, week):
     lines = text.split('\n')
     current_group = None
     teams_list = get_teams_list()
@@ -366,33 +457,7 @@ def parse_and_schedule(text, week):
                 else:
                     st.warning(f"Could not find team(s): {t1_name} (Found: {bool(t1_id)}) vs {t2_name} (Found: {bool(t2_id)})")
 
-    if matches_to_add:
-        st.write(f"Found {len(matches_to_add)} matches to schedule:")
-        st.dataframe(pd.DataFrame(matches_to_add))
-        
-        if st.button("Confirm Schedule Import"):
-            conn = get_conn()
-            try:
-                count = 0
-                for m in matches_to_add:
-                    # Check if exists
-                    existing = conn.execute(
-                        "SELECT id FROM matches WHERE week=? AND team1_id=? AND team2_id=?", 
-                        (m['week'], m['t1_id'], m['t2_id'])
-                    ).fetchone()
-                    
-                    if not existing:
-                        conn.execute(
-                            "INSERT INTO matches (week, group_name, team1_id, team2_id, status) VALUES (?, ?, ?, ?, 'scheduled')",
-                            (m['week'], m['group'], m['t1_id'], m['t2_id'])
-                        )
-                        count += 1
-                conn.commit()
-                st.success(f"Successfully scheduled {count} new matches!")
-            except Exception as e:
-                st.error(f"Database error: {e}")
-            finally:
-                conn.close()
+    return matches_to_add
 
 def save_match_result(match_id, map_name, t1_rounds, t2_rounds, player_stats, match_info):
     conn = get_conn()
