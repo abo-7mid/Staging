@@ -1,14 +1,80 @@
 import streamlit as st
 import pandas as pd
 import html
-from staging.data_access import get_teams_list, get_completed_matches
+from staging.data_access import get_teams_list, get_completed_matches, get_all_players, get_conn
 
 def show_predictor():
     st.markdown('<h1 class="main-header">MATCH PREDICTOR</h1>', unsafe_allow_html=True)
     st.write("Predict the outcome of a match based on team history and stats.")
     
+    # 1. Automatic Weekly Predictions
+    conn = get_conn()
+    try:
+        # Find the next week with scheduled matches
+        # Get max completed week first
+        res = conn.execute("SELECT MAX(week) FROM matches WHERE status='completed'").fetchone()
+        last_completed_week = int(res[0] or 0)
+        current_week = last_completed_week + 1
+        
+        # Get scheduled matches for this week (or all future)
+        # The user asked for "unplayed matches of the current week always till the playoffs"
+        # We'll just fetch all 'scheduled' matches sorted by week
+        scheduled = pd.read_sql_query("""
+            SELECT m.id, m.week, m.team1_id, m.team2_id, t1.name as t1, t2.name as t2, m.group_name
+            FROM matches m
+            JOIN teams t1 ON m.team1_id = t1.id
+            JOIN teams t2 ON m.team2_id = t2.id
+            WHERE m.status = 'scheduled'
+            ORDER BY m.week ASC, m.id ASC
+        """, conn)
+    finally:
+        conn.close()
+        
+    if not scheduled.empty:
+        st.markdown(f"### 📅 Upcoming Matches Predictions")
+        
+        # Group by week
+        weeks = scheduled['week'].unique()
+        for wk in weeks:
+            if wk > 6: continue # Skip playoffs for now unless handled
+            
+            st.markdown(f"#### Week {wk}")
+            week_matches = scheduled[scheduled['week'] == wk]
+            
+            # Display grid of predictions
+            cols = st.columns(3)
+            for i, (_, m) in enumerate(week_matches.iterrows()):
+                with cols[i % 3]:
+                    # Run Prediction
+                    try:
+                        import predictor.predictor_model as pm
+                        prob = pm.predict_match(m['team1_id'], m['team2_id'], wk)
+                    except:
+                        prob = 0.5
+                    
+                    if prob is None: prob = 0.5
+                    
+                    t1_win_prob = prob * 100
+                    winner = m['t1'] if t1_win_prob > 50 else m['t2']
+                    conf = max(t1_win_prob, 100 - t1_win_prob)
+                    
+                    color = "#2ECC71" if conf > 60 else "#F1C40F"
+                    
+                    st.markdown(f"""
+                    <div style="background: rgba(255,255,255,0.05); border-radius: 8px; padding: 10px; margin-bottom: 10px; border-left: 4px solid {color};">
+                        <div style="font-size: 0.8em; color: #aaa;">{m['t1']} vs {m['t2']}</div>
+                        <div style="font-weight: bold; font-size: 1.1em; color: {color};">{winner}</div>
+                        <div style="font-size: 0.9em;">{conf:.1f}% Confidence</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+        st.markdown("---")
+
+    # 2. Custom Predictor
+    st.markdown("### 🛠️ Custom Scenario Predictor")
+    
     teams_df = get_teams_list()
     matches_df = get_completed_matches()
+    all_players = get_all_players()
     
     tnames = teams_df['name'].tolist() if not teams_df.empty else []
     c1, c2 = st.columns(2)
@@ -16,38 +82,71 @@ def show_predictor():
     # Check if user is admin or dev
     is_privileged = st.session_state.get('is_admin', False) or st.session_state.get('role') in ['admin', 'dev']
     
-    if not is_privileged:
-        st.info("Prediction tools are currently locked for visitors until sufficient match data is collected.")
+    t1_name = c1.selectbox("Team 1", tnames, index=0)
+    t2_name = c2.selectbox("Team 2", tnames, index=(1 if len(tnames)>1 else 0))
     
-    t1_name = c1.selectbox("Team 1", tnames, index=0, disabled=not is_privileged)
-    t2_name = c2.selectbox("Team 2", tnames, index=(1 if len(tnames)>1 else 0), disabled=not is_privileged)
-    
-    if st.button("Predict Result", disabled=not is_privileged):
+    # Advanced Options (Roster Selection)
+    with st.expander("Advanced Options (Roster & Map)"):
+        # Map Selection (Placeholder for now, but passed to model if we implement map-specifics later)
+        map_opts = ["Ascent", "Bind", "Breeze", "Fracture", "Haven", "Icebox", "Lotus", "Pearl", "Split", "Sunset"]
+        sel_maps = st.multiselect("Map(s) (Optional)", map_opts)
+        
+        # Roster Selection
+        # Filter players by selected teams for convenience, but allow all
+        t1_id = teams_df[teams_df['name'] == t1_name].iloc[0]['id']
+        t2_id = teams_df[teams_df['name'] == t2_name].iloc[0]['id']
+        
+        t1_default = all_players[all_players['default_team_id'] == t1_id]['id'].tolist()
+        t2_default = all_players[all_players['default_team_id'] == t2_id]['id'].tolist()
+        
+        # Create map for multiselect
+        player_map = {f"{r['name']} ({r['riot_id'] or ''})": r['id'] for _, r in all_players.iterrows()}
+        player_map_inv = {v: k for k, v in player_map.items()}
+        
+        # Pre-select defaults
+        t1_def_labels = [player_map_inv.get(pid) for pid in t1_default if pid in player_map_inv]
+        t2_def_labels = [player_map_inv.get(pid) for pid in t2_default if pid in player_map_inv]
+        
+        ac1, ac2 = st.columns(2)
+        with ac1:
+            t1_sel = st.multiselect(f"{t1_name} Roster", list(player_map.keys()), default=t1_def_labels)
+        with ac2:
+            t2_sel = st.multiselect(f"{t2_name} Roster", list(player_map.keys()), default=t2_def_labels)
+
+    if st.button("Predict Result", type="primary"):
         if t1_name == t2_name:
             st.error("Select two different teams.")
         else:
-            t1_id = teams_df[teams_df['name'] == t1_name].iloc[0]['id']
-            t2_id = teams_df[teams_df['name'] == t2_name].iloc[0]['id']
+            t1_pids = [player_map[l] for l in t1_sel]
+            t2_pids = [player_map[l] for l in t2_sel]
             
-            # Feature extraction helper
-            def get_team_stats(tid):
-                import pandas as pd
+            overrides = {
+                't1_players': t1_pids,
+                't2_players': t2_pids,
+                'map': sel_maps if sel_maps else None
+            }
+            
+            # Feature extraction helper (Local for heuristic fallback)
+            def get_team_stats_local(tid, pids=None):
+                # Basic stats from team history
                 played = matches_df[(matches_df['team1_id']==tid) | (matches_df['team2_id']==tid)]
                 if played.empty:
-                    return {'win_rate': 0.0, 'avg_score': 0.0, 'games': 0}
-                wins = played[played['winner_id'] == tid].shape[0]
-                total = played.shape[0]
+                    base = {'win_rate': 0.0, 'avg_score': 0.0, 'games': 0}
+                else:
+                    wins = played[played['winner_id'] == tid].shape[0]
+                    total = played.shape[0]
+                    scores_t1 = played.loc[played['team1_id'] == tid, 'score_t1']
+                    scores_t2 = played.loc[played['team2_id'] == tid, 'score_t2']
+                    all_scores = pd.concat([scores_t1, scores_t2])
+                    avg_score = all_scores.mean() if not all_scores.empty else 0
+                    base = {'win_rate': wins/total, 'avg_score': avg_score, 'games': total}
                 
-                # Calculate avg score (rounds won) using vectorized operations
-                scores_t1 = played.loc[played['team1_id'] == tid, 'score_t1']
-                scores_t2 = played.loc[played['team2_id'] == tid, 'score_t2']
-                all_scores = pd.concat([scores_t1, scores_t2])
-                avg_score = all_scores.mean() if not all_scores.empty else 0
-                
-                return {'win_rate': wins/total, 'avg_score': avg_score, 'games': total}
+                # If custom roster, try to adjust (this is just for display/heuristic)
+                # For ML, we use the model's logic
+                return base
 
-            s1 = get_team_stats(t1_id)
-            s2 = get_team_stats(t2_id)
+            s1 = get_team_stats_local(t1_id, t1_pids)
+            s2 = get_team_stats_local(t2_id, t2_pids)
             
             # Head to head
             h2h = matches_df[((matches_df['team1_id']==t1_id) & (matches_df['team2_id']==t2_id)) | 
@@ -56,24 +155,22 @@ def show_predictor():
             h2h_wins_t2 = h2h[h2h['winner_id'] == t2_id].shape[0]
             
             # Heuristic Score
-            # Win Rate (40%), Avg Score (30%), H2H (30%)
-            # Normalize scores? No, just compare raw weighted sums or probabilities
-            
-            # Heuristic Score (Fallback if ML fails or data too small)
             score1 = (s1['win_rate'] * 40) + (s1['avg_score'] * 2) + (h2h_wins_t1 * 5)
             score2 = (s2['win_rate'] * 40) + (s2['avg_score'] * 2) + (h2h_wins_t2 * 5)
             
             ml_prob = None
             try:
-                import predictor_model
-                ml_prob = predictor_model.predict_match(t1_id, t2_id)
+                import predictor.predictor_model as pm
+                # Pass overrides to model
+                ml_prob = pm.predict_match(t1_id, t2_id, overrides=overrides)
             except Exception as e:
+                print(e)
                 pass
                 
             if ml_prob is not None:
                 prob1 = ml_prob * 100
                 prob2 = (1 - ml_prob) * 100
-                prediction_type = "ML MODEL"
+                prediction_type = "ML MODEL (Custom Roster)"
             else:
                 total = score1 + score2
                 if total == 0:
