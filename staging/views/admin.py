@@ -10,6 +10,10 @@ from ..data_access import (
 )
 from ..utils import parse_tracker_json, backup_db_to_github
 from ..auth import create_admin_with_role
+try:
+    from predictor.predictor_model import train_model
+except ImportError:
+    train_model = None
 
 def show_admin_panel():
     st.markdown('<h2 class="main-header">ADMINISTRATION</h2>', unsafe_allow_html=True)
@@ -263,8 +267,13 @@ def show_admin_matches():
                         name_html = s['name'] if s['name'] else '<span style="color:#FF4B4B">Unknown Player</span>'
                         
                         # Construct HTML (Compact to avoid markdown indentation issues)
+                        # Important: Use single line or carefully indented blocks.
+                        # For non-subs, we want the same consistent styling.
+                        
+                        card_style = f"background-color: {item['color']}; border: 1px solid {item['border']}; border-radius: 8px; padding: 10px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;"
+                        
                         card_html = f"""
-                        <div style="background-color: {item['color']}; border: 1px solid {item['border']}; border-radius: 8px; padding: 10px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+                        <div style="{card_style}">
                             <div>
                                 <div style="font-weight: bold; font-size: 1em;">{item['icon']} {name_html}</div>
                                 <div style="font-size: 0.8em; color: #aaa;">Tracker: {s['tracker_name']}</div>
@@ -381,6 +390,9 @@ def show_admin_matches():
                                     (m['week'], m['group'], m['t1_id'], m['t2_id'])
                                 )
                                 count += 1
+                            else:
+                                # Update if exists but different? No, just skip for now or update
+                                pass
                         conn.commit()
                         st.success(f"Successfully scheduled {count} new matches!")
                         del st.session_state['schedule_preview']
@@ -544,6 +556,17 @@ def save_match_result(match_id, map_name, t1_rounds, t2_rounds, player_stats, ma
             )
             
         conn.commit()
+        
+        # Train Predictor Model
+        if train_model:
+            try:
+                st.toast("Training predictor model...")
+                success = train_model()
+                if success:
+                    st.toast("Predictor model updated!", icon="🤖")
+            except Exception as e:
+                print(f"Failed to train model: {e}")
+                
     except Exception as e:
         st.error(f"Database Error: {e}")
     finally:
@@ -687,3 +710,14 @@ def show_admin_system():
             if st.form_submit_button("Create Admin"):
                 create_admin_with_role(u, p, r)
                 st.success("Admin created")
+
+        st.markdown("### Model Management")
+        if st.button("Retrain Predictor Model"):
+            if train_model:
+                with st.spinner("Training model..."):
+                    if train_model():
+                        st.success("Model retrained successfully!")
+                    else:
+                        st.error("Training failed (check logs/data).")
+            else:
+                st.error("Predictor module not available.")
